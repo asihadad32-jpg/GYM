@@ -1,4 +1,4 @@
-const CACHE_NAME = 'liron-gym-v44';
+const CACHE_NAME = 'liron-gym-v45';
 const FILES = ['./index.html', './manifest.json'];
 
 self.addEventListener('install', e => {

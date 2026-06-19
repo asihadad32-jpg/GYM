@@ -385,6 +385,26 @@ html{overscroll-behavior-y:none;}
 .timed-ex-wrap{display:flex;flex-direction:column;align-items:center;gap:12px;padding:8px 0}
 .timed-start-btn{background:linear-gradient(135deg,var(--accent2),var(--accent));color:#fff;border:none;border-radius:14px;padding:16px 32px;font-size:18px;font-weight:700;cursor:pointer;font-family:var(--fb);min-width:160px;transition:transform .1s}
 .timed-start-btn:active{transform:scale(.97)}
+
+/* ── Set control row ── */
+.set-ctrl-row{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:10px 14px}
+.btn-add-set{background:#1a2810;border:1px solid #3a5020;border-radius:10px;color:#a5d6a7;padding:8px 16px;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--fb)}
+.btn-add-set:active{background:#243818}
+.btn-remove-set{background:#2a1018;border:1px solid #4a2030;border-radius:10px;color:#f472b6;padding:8px 16px;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--fb)}
+.btn-remove-set:disabled{opacity:0.3;cursor:not-allowed}
+.btn-remove-set:active:not(:disabled){background:#3a1828}
+.set-ctrl-count{font-size:13px;color:var(--muted);font-weight:600}
+/* ── Plan update ── */
+.update-plan-btn{background:linear-gradient(135deg,#4fc3f7,#818cf8);color:#fff;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;font-family:var(--fb);width:100%;text-align:center}
+.update-plan-btn:active{transform:scale(.97)}
+.plan-update-screen{animation:fadeIn .4s ease;display:flex;flex-direction:column;gap:14px}
+.plan-update-title{font-family:var(--fd);font-size:36px;color:#4fc3f7;text-align:center;letter-spacing:2px}
+.plan-update-sub{color:var(--muted);font-size:14px;text-align:center}
+.diff-list{display:flex;flex-direction:column;gap:10px}
+.diff-card{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px 14px}
+.diff-ex-name{font-size:14px;font-weight:700;color:var(--accent);margin-bottom:6px}
+.diff-row{font-size:13px;color:var(--muted);padding:3px 0;display:flex;align-items:center;gap:6px}
+.diff-row::before{content:'•';color:var(--accent2)}
 </style>
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1293,6 +1313,35 @@ function renderExercise(){
   btnDone.onclick=handleAction;
 
   const secRow=el('div','sec-btn-row');
+
+  // Add/remove set buttons
+  if(e.type==='exercise'||e.track==='timed'){
+    const setCtrlRow=el('div','set-ctrl-row');
+    const addSetBtn=el('button','btn-add-set');
+    addSetBtn.textContent='+ הוסף סט';
+    addSetBtn.onclick=()=>{
+      const lastSet=ps.sets[ps.sets.length-1]||{reps:e.defaultReps,weight:0};
+      ps.sets.push({reps:lastSet.reps,weight:lastSet.weight});
+      // Update planned sets count
+      if(currentExLog) currentExLog.plannedSets=ps.sets.length;
+      renderExercise();
+    };
+    const removeSetBtn=el('button','btn-remove-set');
+    removeSetBtn.textContent='− הסר סט';
+    removeSetBtn.disabled=ps.sets.length<=1||(setsDone>=ps.sets.length-1);
+    removeSetBtn.onclick=()=>{
+      if(ps.sets.length<=1) return;
+      if(setsDone>=ps.sets.length-1) return;
+      ps.sets.pop();
+      if(currentExLog) currentExLog.plannedSets=ps.sets.length;
+      renderExercise();
+    };
+    const setsCount=el('div','set-ctrl-count');
+    setsCount.textContent='סה"כ: '+ps.sets.length+' סטים';
+    setCtrlRow.append(removeSetBtn,setsCount,addSetBtn);
+    secRow.appendChild(setCtrlRow);
+  }
+
   if(totalSets>1 && setsDone>0 && !isLastSet){
     const btnEarly=el('button','btn-early');
     btnEarly.textContent='🏁 סיים מוקדם ('+setsDone+' סטים)';
@@ -1305,7 +1354,6 @@ function renderExercise(){
     btnSkip.onclick=skipExercise;
     secRow.appendChild(btnSkip);
   }
-  // Go back to previous exercise (if there is one and setsDone===0)
   if(exIdx>0 && setsDone===0){
     const btnPrev=el('button','btn-prev-ex');
     const prevEx=WORKOUT[exIdx-1];
@@ -1481,6 +1529,9 @@ function renderSummary(){
   saveSession(currentWorkoutNum,sessionData);
   clearAutoSave();  // Workout complete - no need for autosave
 
+  // Check if actual differs from planned and offer to update
+  checkAndOfferPlanUpdate(currentWorkoutNum, sessionData);
+
   const wrap=el('div','summary-screen');
   const trophy=el('div');trophy.textContent='🏆';trophy.style.cssText='font-size:64px;text-align:center;animation:float 2s ease-in-out infinite';
   const st=el('div','sum-title');st.textContent='אימון '+(currentWorkoutNum===1?'א':'ב')+' הושלם!';
@@ -1560,7 +1611,21 @@ function renderSummary(){
     }catch(e){ copyFallback(lines,copyBtn); }
   };
 
-  const backBtn2=el('button','btn-secondary');backBtn2.textContent='↩ חזרה לבחירת אימון';backBtn2.onclick=renderWelcome;
+  // Plan update button - show if there are diffs
+  if(window._pendingPlanUpdate){
+    const updatePlanBtn=el('button','update-plan-btn');
+    updatePlanBtn.textContent='📊 עדכן תוכנית לפי האימון בפועל';
+    updatePlanBtn.onclick=()=>{
+      const {wNum,sessionData,diffs}=window._pendingPlanUpdate;
+      renderPlanUpdatePrompt(wNum,sessionData,diffs);
+    };
+    wrap.appendChild(updatePlanBtn);
+  }
+
+  const backBtn2=el('button','btn-secondary');backBtn2.textContent='↩ חזרה לבחירת אימון';backBtn2.onclick=()=>{
+    window._pendingPlanUpdate=null;
+    renderWelcome();
+  };
   const p=el('p','done-text');p.style.textAlign='center';p.innerHTML='<strong style="color:var(--text)">תזכרי לשתות מים</strong> ולאכול ארוחה עשירה בחלבון. 💜';
 
   wrap.append(trophy,st,stats,tbl,manualSaveBtn,copyBtn,p,backBtn2);
@@ -2489,6 +2554,121 @@ function renderExerciseForm(wNum, existingEx){
   cancelBtn.onclick=()=>renderExerciseDBScreen(wNum);
   wrap.appendChild(cancelBtn);
 
+  setScreen(wrap);
+}
+
+
+// ── Check if plan should be updated after workout ────────────────────────────
+function checkAndOfferPlanUpdate(wNum, sessionData){
+  const current = getEffectiveWorkout(wNum);
+  let hasDiffs = false;
+  const diffs = [];
+
+  sessionData.exercises.forEach(ex=>{
+    if(ex.skipped && ex.abandoned) return;
+    if(!ex.setDetails || !ex.setDetails.length) return;
+    const planEx = current.find(e=>e.name===ex.name);
+    if(!planEx) return;
+    const ps = plannedSets[ex.name];
+    if(!ps) return;
+
+    // Check sets count diff
+    const plannedCount = ps.sets.length;
+    const actualCount = ex.setDetails.length;
+    if(plannedCount !== actualCount){
+      hasDiffs = true;
+      diffs.push({name:ex.name, field:'sets', planned:plannedCount, actual:actualCount});
+    }
+
+    // Check weight diffs (use last set as reference)
+    ex.setDetails.forEach((sd,i)=>{
+      const planSet = ps.sets[i];
+      if(!planSet) return;
+      if(sd.weight && planSet.weight !== sd.weight){
+        hasDiffs = true;
+        diffs.push({name:ex.name, field:'weight', set:i+1, planned:planSet.weight, actual:sd.weight});
+      }
+      if(sd.reps && planSet.reps !== sd.reps){
+        hasDiffs = true;
+        diffs.push({name:ex.name, field:'reps', set:i+1, planned:planSet.reps, actual:sd.reps});
+      }
+    });
+  });
+
+  if(!hasDiffs) return;
+
+  // Store diffs for the update screen
+  window._pendingPlanUpdate = {wNum, sessionData, diffs, current};
+}
+
+// ── Render plan update prompt (called from summary screen) ───────────────────
+function renderPlanUpdatePrompt(wNum, sessionData, diffs){
+  appScreen = 'planupdate';
+  document.getElementById('backBtn').style.display = 'none';
+
+  const wrap = el('div','plan-update-screen');
+  const title = el('div','plan-update-title');
+  title.textContent = '📊 עדכון תוכנית';
+  const sub = el('div','plan-update-sub');
+  sub.textContent = 'האימון בוצע שונה מהתוכנית — לעדכן?';
+  wrap.append(title,sub);
+
+  // Show diffs summary
+  const diffList = el('div','diff-list');
+  // Group by exercise
+  const byEx = {};
+  diffs.forEach(d=>{
+    if(!byEx[d.name]) byEx[d.name]=[];
+    byEx[d.name].push(d);
+  });
+
+  Object.entries(byEx).forEach(([name, exDiffs])=>{
+    const card = el('div','diff-card');
+    const nm = el('div','diff-ex-name');nm.textContent=name;
+    card.appendChild(nm);
+    exDiffs.forEach(d=>{
+      const row = el('div','diff-row');
+      let txt='';
+      if(d.field==='sets') txt='סטים: '+d.planned+' → '+d.actual;
+      else if(d.field==='weight') txt='סט '+d.set+' משקל: '+d.planned+'ק"ג → '+d.actual+'ק"ג';
+      else if(d.field==='reps') txt='סט '+d.set+' חזרות: '+d.planned+' → '+d.actual;
+      row.textContent=txt;
+      card.appendChild(row);
+    });
+    diffList.appendChild(card);
+  });
+  wrap.appendChild(diffList);
+
+  // Buttons
+  const btnYes = el('button','btn-main');
+  btnYes.textContent = '✅ עדכן את התוכנית';
+  btnYes.style.cssText='box-shadow:none;animation:none;';
+  btnYes.onclick=()=>{
+    // Update plannedSets based on actual performance
+    const current = getEffectiveWorkout(wNum).slice();
+    sessionData.exercises.forEach(ex=>{
+      if(!ex.setDetails||!ex.setDetails.length) return;
+      if(!plannedSets[ex.name]) return;
+      // Update sets count and values
+      plannedSets[ex.name].sets = ex.setDetails.map(sd=>({
+        reps: sd.reps||plannedSets[ex.name].sets[0]&&plannedSets[ex.name].sets[0].reps||12,
+        weight: sd.weight!=null?sd.weight:0
+      }));
+    });
+    // Save as custom workout
+    saveCustomWorkout(wNum, current);
+    // Also save plannedSets as plan
+    savePlanning(wNum);
+    window._pendingPlanUpdate = null;
+    renderWelcome();
+  };
+
+  const btnNo = el('button','btn-secondary');
+  btnNo.textContent = '← השאר את התוכנית כפי שתוכננה';
+  btnNo.style.marginTop='8px';
+  btnNo.onclick=()=>{ window._pendingPlanUpdate=null; renderWelcome(); };
+
+  wrap.append(btnYes,btnNo);
   setScreen(wrap);
 }
 
